@@ -4,7 +4,7 @@ import time
 from queue import Queue
 from scapy.all import IP, UDP, TCP, ICMP, sr1, send
 
-# Dictionary for common service identification
+
 COMMON_SERVICES = {
     20: "FTP-DATA", 21: "FTP", 22: "SSH", 23: "TELNET", 25: "SMTP",
     53: "DNS", 67: "DHCP", 68: "DHCP", 69: "TFTP", 80: "HTTP",
@@ -15,15 +15,15 @@ COMMON_SERVICES = {
     993: "IMAPS", 995: "POP3S", 1433: "MSSQL", 1434: "MSSQL", 1521: "ORACLE",
     1701: "L2TP", 1723: "PPTP", 2049: "NFS", 3306: "MYSQL", 3389: "RDP",
     5060: "SIP", 5061: "SIP", 5432: "POSTGRESQL", 5900: "VNC", 8080: "HTTP-PROXY"
-}
+} 
 
-# Print lock to prevent thread output collision
+
 print_lock = threading.Lock()
-# Store scan results
+
 scan_results = []
 
 def get_service_name(port, protocol):
-    """Determine service name from port number"""
+    
     try:
         service = socket.getservbyport(port, protocol)
         return service
@@ -33,24 +33,24 @@ def get_service_name(port, protocol):
         return "unknown"
 
 def grab_banner(ip, port, timeout=2):
-    """Try to grab service banner for fingerprinting"""
+    
     banner = None
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(timeout)
             s.connect((ip, port))
             
-            # Send appropriate request based on common port protocols
+            
             if port == 80 or port == 443 or port == 8080:
                 s.send(b'GET / HTTP/1.1\r\nHost: %s\r\n\r\n' % ip.encode())
             elif port == 21:  # FTP
-                pass  # Just wait for banner
+                pass  
             elif port == 22:  # SSH
-                pass  # Just wait for banner
+                pass  
             elif port == 25 or port == 587:  # SMTP
-                pass  # Just wait for banner
+                pass  
             else:
-                s.send(b'\r\n')  # Generic request
+                s.send(b'\r\n')  
                 
             banner = s.recv(1024).decode('utf-8', errors='ignore').strip()
     except:
@@ -58,7 +58,7 @@ def grab_banner(ip, port, timeout=2):
     return banner
 
 def tcp_connect_scan(ip, port, timeout=1):
-    """Perform TCP connect scan on specified port"""
+    
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
@@ -72,17 +72,17 @@ def tcp_connect_scan(ip, port, timeout=1):
         return False, None, None
 
 def tcp_syn_scan(ip, port, timeout=1):
-    """Perform TCP SYN scan (requires admin/root privileges)"""
+    
     try:
-        # Send SYN packet
+        
         syn_packet = IP(dst=ip)/TCP(dport=port, flags="S")
-        # Wait for response
+        
         response = sr1(syn_packet, timeout=timeout, verbose=0)
         
-        if response and response.haslayer(TCP):
-            # Check for SYN-ACK response (flag 0x12)
+        if response and response.haslayer(TCP): # SYNACK check
+            
             if response[TCP].flags == 0x12:
-                # Send RST to close connection
+                
                 rst_packet = IP(dst=ip)/TCP(dport=port, flags="R")
                 send(rst_packet, verbose=0)
                 service = get_service_name(port, "tcp")
@@ -93,23 +93,23 @@ def tcp_syn_scan(ip, port, timeout=1):
         return False, None, None
 
 def udp_scan(ip, port, timeout=2):
-    """Perform UDP scan on specified port"""
+    
     try:
-        # Send empty UDP packet
-        udp_packet = IP(dst=ip)/UDP(dport=port)
-        # Wait for response
+        
+        udp_packet = IP(dst=ip)/UDP(dport=port) # Send empty UDP packet
+        
         response = sr1(udp_packet, timeout=timeout, verbose=0)
         
-        # No response could mean port is open (or filtered)
+        # No response matlab port open
         if response is None:
             service = get_service_name(port, "udp")
             return "open|filtered", service, None
             
-        # ICMP Port Unreachable (type 3, code 3) means port is closed
+        # ICMP Port Unreachable (type 3, code 3) , port is closed
         elif response.haslayer(ICMP) and response[ICMP].type == 3 and response[ICMP].code == 3:
             return "closed", None, None
             
-        # Other response typically means port is open
+        # Other resp port open
         else:
             service = get_service_name(port, "udp")
             return "open", service, None
@@ -117,7 +117,7 @@ def udp_scan(ip, port, timeout=2):
         return "error", None, None
 
 def scan_worker(ip, ports_queue, scan_type):
-    """Worker function for threaded scanning"""
+    
     while not ports_queue.empty():
         port = ports_queue.get()
         
@@ -140,7 +140,7 @@ def scan_worker(ip, ports_queue, scan_type):
         ports_queue.task_done()
 
 def run_scan(target, port_range, scan_type="tcp", threads=100):
-    """Main function to run port scan with multiple threads"""
+    
     start_time = time.time()
     ports_queue = Queue()
     
@@ -151,29 +151,29 @@ def run_scan(target, port_range, scan_type="tcp", threads=100):
     else:
         port_list = [int(p) for p in port_range.split(",")]
     
-    # Add ports to queue
+    
     for port in port_list:
         ports_queue.put(port)
     
     print(f"Starting {scan_type} scan on {target} for {len(port_list)} ports")
     
-    # Create and start worker threads
+    
     thread_count = min(threads, len(port_list))
     for _ in range(thread_count):
         t = threading.Thread(target=scan_worker, args=(target, ports_queue, scan_type))
         t.daemon = True
         t.start()
     
-    # Wait for all ports to be scanned
+   
     ports_queue.join()
     
-    # Sort results by port
+   
     scan_results.sort(key=lambda x: x[0])
     
     print(f"\nScan completed in {time.time() - start_time:.2f} seconds")
     print(f"Found {len(scan_results)} open ports\n")
     
-    # Display results
+    
     if scan_results:
         print(f"{'PORT':<10} {'PROTOCOL':<10} {'STATE':<15} {'SERVICE':<15} {'BANNER'}")
         print("-" * 80)
@@ -182,7 +182,7 @@ def run_scan(target, port_range, scan_type="tcp", threads=100):
             print(f"{port:<10} {proto:<10} {state:<15} {service:<15} {banner_truncated}")
 
 def main():
-    print("===== Port Scanner Tool =====")
+    print("~~~~~~ Port Scanner Tool ~~~~~~")
     
     target = input("Enter target IP: ")
     
@@ -202,7 +202,7 @@ def main():
     
     port_range = input("Enter port range (e.g. 1-1024 or 21,22,80,443): ")
     if not port_range:
-        port_range = "1-1024"  # Default range
+        port_range = "1-1024"  
     
     threads = input("Enter number of threads (default: 100): ")
     if not threads or not threads.isdigit():
@@ -210,7 +210,7 @@ def main():
     else:
         threads = int(threads)
     
-    # Run the scan
+   
     run_scan(target, port_range, scan_type, threads)
 
 if _name_ == "_main_":
