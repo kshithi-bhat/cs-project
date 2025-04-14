@@ -63,7 +63,7 @@ def tcp_connect_scan(ip, port, timeout=1):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
             result = sock.connect_ex((ip, port))
-            if result == 0:  # Port is open
+            if result == 0:  # 0 means port open
                 service = get_service_name(port, "tcp")
                 banner = grab_banner(ip, port)
                 return True, service, banner
